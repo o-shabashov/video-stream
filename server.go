@@ -12,13 +12,9 @@ import (
 )
 
 const (
-	sampleVideo       = "sample.mp4"
-	chunkSize   int64 = 100 * 1024
-)
-
-var (
-	part  []byte
-	count int
+	sampleVideo         = "sample.mp4"
+	chunkSize1Mb  int64 = 1024 * 1024
+	chunkSizeMbit       = float64(chunkSize1Mb * 8)
 )
 
 func main() {
@@ -29,74 +25,49 @@ func main() {
 		check(err)
 		defer file.Close()
 
-		fileHeader := make([]byte, 512)
-		file.Read(fileHeader)
-		contentType := http.DetectContentType(fileHeader)
-		file.Seek(0, 0)
-
-		movieFileStat, err := file.Stat()
-		check(err)
-
+		contentType, contentLength := fileInfo(file, err)
 		writer.Header().Set("Content-Type", contentType)
-		writer.Header().Set("Content-Length", strconv.Itoa(int(movieFileStat.Size())))
+		writer.Header().Set("Content-Length", contentLength)
 
-		//channel := make(chan int64)
-
-		reader := bufio.NewReader(file)
-		//buffer := bytes.NewBuffer(make([]byte, 0))
-		part = make([]byte, chunkSize)
-
-		for {
-			start := time.Now()
-			written, err := io.CopyN(writer, reader, chunkSize)
-			if err != nil {
-				break
-			}
-			duration := time.Since(start)
-			log.Printf("Written: %v", written)
-			log.Printf("Duration: %v", duration)
-		}
-
-		if err != io.EOF && err != nil {
-			log.Fatal("Error Reading ", sampleVideo, ": ", err)
-		} else {
-			err = nil
-		}
-
-		//for i := range channel {
-		//	log.Println(i)
-		//}
-
-		return
+		copyFile(writer, file)
 	})
 
 	log.Fatal(http.ListenAndServe(":8899", nil))
 }
 
-func copyFile(writer http.ResponseWriter, file *os.File) {
-	fileStat, err := file.Stat()
+func fileInfo(file *os.File, err error) (string, string) {
+	fileHeader := make([]byte, 512)
+	_, err = file.Read(fileHeader)
 	check(err)
-	var i int64
 
-	for i = 0; i < fileStat.Size(); i += 100 * 1024 {
+	contentType := http.DetectContentType(fileHeader)
+	_, err = file.Seek(0, 0)
+	check(err)
+
+	movieFileStat, err := file.Stat()
+	check(err)
+
+	return contentType, strconv.Itoa(int(movieFileStat.Size()))
+}
+
+func copyFile(writer http.ResponseWriter, file *os.File) {
+	reader := bufio.NewReader(file)
+
+	for {
 		start := time.Now()
-		_, err := io.CopyN(writer, file, 100*1024)
-		check(err)
-		file.Seek(i, 1)
+		_, err := io.CopyN(writer, reader, chunkSize1Mb)
 		duration := time.Since(start)
+		log.Printf("%.2f seconds, %.2f Mb/s", duration.Seconds(), chunkSizeMbit/duration.Seconds())
 
-		log.Println(duration)
-
-		//channel <- duration.Milliseconds()
+		if err == io.EOF {
+			break
+		} else if err != io.EOF && err != nil {
+			panic(err)
+		}
 	}
-
-	//close(channel)
 }
 
 func check(e error) {
-	if e == io.EOF {
-		return
-	}
 	if e != nil {
 		panic(e)
 	}
