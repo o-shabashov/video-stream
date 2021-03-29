@@ -2,24 +2,21 @@ package main
 
 import (
 	"bufio"
-	"html"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 )
 
 const (
-	sampleVideo         = "sample.mp4"
-	chunkSize1Mb  int64 = 1024 * 1024
-	chunkSizeMbit       = float64(chunkSize1Mb * 8)
+	sampleVideo    = "sample.mp4"
+	fileBufferSize = 1024
 )
 
 func main() {
 	http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-		log.Printf("%q %q", html.EscapeString(request.Method), html.EscapeString(request.URL.Path))
+		log.Printf("%q %q", request.Method, request.URL.Path)
 
 		file, err := os.Open(sampleVideo)
 		check(err)
@@ -50,21 +47,13 @@ func fileInfo(file *os.File, err error) (string, string) {
 	return contentType, strconv.Itoa(int(movieFileStat.Size()))
 }
 
-func copyFile(writer http.ResponseWriter, file *os.File) {
+func copyFile(writer http.ResponseWriter, file *os.File) (written int64) {
 	reader := bufio.NewReader(file)
+	fileBuffer := make([]byte, fileBufferSize)
+	written, err := io.CopyBuffer(writer, reader, fileBuffer)
+	check(err)
 
-	for {
-		start := time.Now()
-		_, err := io.CopyN(writer, reader, chunkSize1Mb)
-		duration := time.Since(start)
-		log.Printf("%.2f seconds, %.2f Mb/s", duration.Seconds(), chunkSizeMbit/duration.Seconds())
-
-		if err == io.EOF {
-			break
-		} else if err != io.EOF && err != nil {
-			panic(err)
-		}
-	}
+	return
 }
 
 func check(e error) {
